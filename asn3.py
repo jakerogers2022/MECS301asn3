@@ -97,6 +97,8 @@ class HexapodControl(RobotControl):
         (0.26373186707496643, -1000.0, 0.46979808807373047): 'L',
         (0.269019216299057, 0.48895263671875, -1000.0): 'R',
         (0.11160784959793091, 0.4868141710758209, -1000.0): 'R'}
+
+        center_dict = {}
         
         while not rospy.is_shutdown():
             dir = input("which direction?")
@@ -104,7 +106,7 @@ class HexapodControl(RobotControl):
             right_dist = self.getSensorValue('right')
             front_dist = self.getSensorValue('front')
 
-            data_dict[(front_dist, left_dist, right_dist)] = dir
+            center_dict[(front_dist, left_dist, right_dist)] = dir
             print(data_dict)
 
             # self.hold_neutral() #remove if not necessary
@@ -117,12 +119,13 @@ class HexapodControl(RobotControl):
             # self.reactive_control()
             # change the sleep time to whatever is the appropriate control rate for simulation
             time.sleep(0.1)
-    def distance(self, point1, point2){
+    
+    def distance(self, point1, point2):
         x = (point1[0]-point2[0])**2
         y = (point1[1]-point2[1])**2
         z = (point1[2]-point2[2])**2
         d = sqrt(x+y+z)
-    }
+    
 
     def adjust_path(self):
         left_dist = self.getSensorValue('left') + 0.08
