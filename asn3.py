@@ -1,14 +1,343 @@
 #!/usr/bin/env python
 from map import *
-from robot_control import RobotControl
 import rospy
 import time
 import math
 import sys
 import os
 import rospkg
+import rospy
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float32, Bool
+from geometry_msgs.msg import Pose
+from sensor_msgs.msg import Range, JointState
+import tf2_ros
+from tf2_msgs.msg import TFMessage
+import geometry_msgs.msg
+import time
+import numpy as np
+from dynamic_reconfigure.server import Server as DynamicReconfigureServer
+from me_cs301_robots.cfg import HexapodJointControlConfig, RWJointControlConfig
+import math
+
+
+class RobotControl(object):
+    def __init__(self, robot_type='rollerwalker'):
+        self.robot_type = robot_type
+        if self.robot_type == 'hexapod':
+            rospy.init_node('hexapod_control', anonymous=True)
+        elif self.robot_type == 'rollerwalker':
+            rospy.init_node('roller_walker_control', anonymous=True)
+            
+        print('INIT NODE')
+        
+        self.initialize_publishers()
+        self.initialize_subscribers()
+        self.sim_time = 0.0
+        
+        self.robot_pose = Pose()
+        self.front_sensor_val = Float32()
+        self.left_sensor_val = Float32()
+        self.right_sensor_val = Float32()
+
+        self.joint_states = JointState()
+        self.SENSOR_TYPES = ['front', 'left', 'right']
+        # self.is_go_down = False
+
+        self.initialize_publisher_msgs()
+
+        if self.robot_type == 'hexapod':
+            self.paradigm_reconfigure_srv = DynamicReconfigureServer(HexapodJointControlConfig, self.reconfig_paradigm_cb)
+        else:
+            self.paradigm_reconfigure_srv = DynamicReconfigureServer(RWJointControlConfig, self.reconfig_paradigm_cb)
+
+    def degToRad(self, deg):
+        return deg*math.pi/180.0
+        
+    def initialize_publisher_msgs(self):
+        if self.robot_type == 'hexapod':
+            self.leg1_j1 = Float32()
+            self.leg1_j2 = Float32()
+            self.leg1_j3 = Float32()
+
+            self.leg2_j1 = Float32()
+            self.leg2_j2 = Float32()
+            self.leg2_j3 = Float32()
+            
+            self.leg3_j1 = Float32()
+            self.leg3_j2 = Float32()
+            self.leg3_j3 = Float32()
+
+            self.leg4_j1 = Float32()
+            self.leg4_j2 = Float32()
+            self.leg4_j3 = Float32()
+            
+            self.leg5_j1 = Float32()
+            self.leg5_j2 = Float32()
+            self.leg5_j3 = Float32()
+            
+            self.leg6_j1 = Float32()
+            self.leg6_j2 = Float32()
+            self.leg6_j3 = Float32()
+
+        elif self.robot_type == 'rollerwalker':
+            self.leg1_j1 = Float32()
+            self.leg1_j2 = Float32()
+            self.leg1_j3 = Float32()
+
+            self.leg2_j1 = Float32()
+            self.leg2_j2 = Float32()
+            self.leg2_j3 = Float32()
+
+            self.leg3_j1 = Float32()
+            self.leg3_j2 = Float32()
+            self.leg3_j3 = Float32()
+
+            self.leg4_j1 = Float32()
+            self.leg4_j2 = Float32()
+            self.leg4_j3 = Float32()
+
+    def initialize_publishers(self):
+        # initialized latched publishers
+        if self.robot_type == 'hexapod':
+            self.leg1_j1_pub = rospy.Publisher('/leg1_j1', Float32, queue_size=1, latch=True)
+            self.leg1_j2_pub = rospy.Publisher('/leg1_j2', Float32, queue_size=1, latch=True)
+            self.leg1_j3_pub = rospy.Publisher('/leg1_j3', Float32, queue_size=1, latch=True)
+            
+            self.leg2_j1_pub = rospy.Publisher('/leg2_j1', Float32, queue_size=1, latch=True)
+            self.leg2_j2_pub = rospy.Publisher('/leg2_j2', Float32, queue_size=1, latch=True)
+            self.leg2_j3_pub = rospy.Publisher('/leg2_j3', Float32, queue_size=1, latch=True)
+
+            self.leg3_j1_pub = rospy.Publisher('/leg3_j1', Float32, queue_size=1, latch=True)
+            self.leg3_j2_pub = rospy.Publisher('/leg3_j2', Float32, queue_size=1, latch=True)
+            self.leg3_j3_pub = rospy.Publisher('/leg3_j3', Float32, queue_size=1, latch=True)
+
+            self.leg4_j1_pub = rospy.Publisher('/leg4_j1', Float32, queue_size=1, latch=True)
+            self.leg4_j2_pub = rospy.Publisher('/leg4_j2', Float32, queue_size=1, latch=True)
+            self.leg4_j3_pub = rospy.Publisher('/leg4_j3', Float32, queue_size=1, latch=True)
+
+            self.leg5_j1_pub = rospy.Publisher('/leg5_j1', Float32, queue_size=1, latch=True)
+            self.leg5_j2_pub = rospy.Publisher('/leg5_j2', Float32, queue_size=1, latch=True)
+            self.leg5_j3_pub = rospy.Publisher('/leg5_j3', Float32, queue_size=1, latch=True)
+
+            self.leg6_j1_pub = rospy.Publisher('/leg6_j1', Float32, queue_size=1, latch=True)
+            self.leg6_j2_pub = rospy.Publisher('/leg6_j2', Float32, queue_size=1, latch=True)
+            self.leg6_j3_pub = rospy.Publisher('/leg6_j3', Float32, queue_size=1, latch=True)
+
+        elif self.robot_type == 'rollerwalker':
+            self.leg1_j1_pub = rospy.Publisher('/leg1_j1', Float32, queue_size=1, latch=True)
+            self.leg1_j2_pub = rospy.Publisher('/leg1_j2', Float32, queue_size=1, latch=True)
+            self.leg1_j3_pub = rospy.Publisher('/leg1_j3', Float32, queue_size=1, latch=True)
+            
+            self.leg2_j1_pub = rospy.Publisher('/leg2_j1', Float32, queue_size=1, latch=True)
+            self.leg2_j2_pub = rospy.Publisher('/leg2_j2', Float32, queue_size=1, latch=True)
+            self.leg2_j3_pub = rospy.Publisher('/leg2_j3', Float32, queue_size=1, latch=True)
+
+            self.leg3_j1_pub = rospy.Publisher('/leg3_j1', Float32, queue_size=1, latch=True)
+            self.leg3_j2_pub = rospy.Publisher('/leg3_j2', Float32, queue_size=1, latch=True)
+            self.leg3_j3_pub = rospy.Publisher('/leg3_j3', Float32, queue_size=1, latch=True)
+
+            self.leg4_j1_pub = rospy.Publisher('/leg4_j1', Float32, queue_size=1, latch=True)
+            self.leg4_j2_pub = rospy.Publisher('/leg4_j2', Float32, queue_size=1, latch=True)
+            self.leg4_j3_pub = rospy.Publisher('/leg4_j3', Float32, queue_size=1, latch=True)
+    
+    def initialize_subscribers(self):
+        rospy.Subscriber('/simTime', Float32, self.simTime_cb)
+        rospy.Subscriber('/tf', TFMessage, self.tf_cb)
+
+        rospy.Subscriber('/frontSensorDistance', Range, self.distance_front_cb)
+        rospy.Subscriber('/leftSensorDistance',  Range, self.distance_left_cb)
+        rospy.Subscriber('/rightSensorDistance', Range, self.distance_right_cb)
+
+        if self.robot_type == 'hexapod':
+            rospy.Subscriber('/hexapod/joint_states', JointState, self.joint_states_cb)
+        elif self.robot_type == 'rollerwalker':
+            rospy.Subscriber('/rollerwalker/joint_states', JointState, self.joint_states_cb)
+    
+    # subscriber callbacks
+    def simTime_cb(self, msg):
+        self.sim_time = msg.data
+    
+    def tf_cb(self, msg):
+        self.robot_pose.position.x = msg.transforms[0].transform.translation.x
+        self.robot_pose.position.y = msg.transforms[0].transform.translation.y
+        self.robot_pose.position.z = msg.transforms[0].transform.translation.z
+        self.robot_pose.orientation.x = msg.transforms[0].transform.rotation.x
+        self.robot_pose.orientation.y = msg.transforms[0].transform.rotation.y
+        self.robot_pose.orientation.z = msg.transforms[0].transform.rotation.z
+        self.robot_pose.orientation.w = msg.transforms[0].transform.rotation.w
+
+    #Sensor callbacks Same for both robots. 
+    def distance_front_cb(self, msg):
+        self.front_sensor_val.data = msg.range
+    
+    def distance_left_cb(self, msg):
+        self.left_sensor_val.data = msg.range    
+
+    def distance_right_cb(self, msg):
+        self.right_sensor_val.data = msg.range
+        
+    def joint_states_cb(self, msg):
+        self.joint_states = msg
+
+    def publish_joint_values(self): 
+        if self.robot_type == 'hexapod':
+            self.leg1_j1_pub.publish(self.leg1_j1)
+            self.leg1_j2_pub.publish(self.leg1_j2)
+            self.leg1_j3_pub.publish(self.leg1_j3)
+
+            self.leg2_j1_pub.publish(self.leg2_j1)
+            self.leg2_j2_pub.publish(self.leg2_j2)
+            self.leg2_j3_pub.publish(self.leg2_j3)
+            
+            self.leg3_j1_pub.publish(self.leg3_j1)
+            self.leg3_j2_pub.publish(self.leg3_j2)
+            self.leg3_j3_pub.publish(self.leg3_j3)
+
+            self.leg4_j1_pub.publish(self.leg4_j1)
+            self.leg4_j2_pub.publish(self.leg4_j2)
+            self.leg4_j3_pub.publish(self.leg4_j3)
+
+            self.leg5_j1_pub.publish(self.leg5_j1)
+            self.leg5_j2_pub.publish(self.leg5_j2)
+            self.leg5_j3_pub.publish(self.leg5_j3)
+
+            self.leg6_j1_pub.publish(self.leg6_j1)
+            self.leg6_j2_pub.publish(self.leg6_j2)
+            self.leg6_j3_pub.publish(self.leg6_j3)
+
+        elif self.robot_type == 'rollerwalker':
+            self.leg1_j1_pub.publish(self.leg1_j1)
+            self.leg1_j2_pub.publish(self.leg1_j2)
+            self.leg1_j3_pub.publish(self.leg1_j3)
+
+            self.leg2_j1_pub.publish(self.leg2_j1)
+            self.leg2_j2_pub.publish(self.leg2_j2)
+            self.leg2_j3_pub.publish(self.leg2_j3)
+            
+            self.leg3_j1_pub.publish(self.leg3_j1)
+            self.leg3_j2_pub.publish(self.leg3_j2)
+            self.leg3_j3_pub.publish(self.leg3_j3)
+
+            self.leg4_j1_pub.publish(self.leg4_j1)
+            self.leg4_j2_pub.publish(self.leg4_j2)
+            self.leg4_j3_pub.publish(self.leg4_j3)
+    
+    def reconfig_paradigm_cb(self, config, level):
+        if self.robot_type == 'hexapod':
+            self.leg1_j1.data = config.leg1_j1
+            self.leg1_j2.data = config.leg1_j2
+            self.leg1_j3.data = config.leg1_j3
+
+            self.leg2_j1.data = config.leg2_j1
+            self.leg2_j2.data = config.leg2_j2
+            self.leg2_j3.data = config.leg2_j3
+
+            self.leg3_j1.data = config.leg3_j1
+            self.leg3_j2.data = config.leg3_j2
+            self.leg3_j3.data = config.leg3_j3
+
+            self.leg4_j1.data = config.leg4_j1
+            self.leg4_j2.data = config.leg4_j2
+            self.leg4_j3.data = config.leg4_j3
+
+            self.leg5_j1.data = config.leg5_j1
+            self.leg5_j2.data = config.leg5_j2
+            self.leg5_j3.data = config.leg5_j3
+
+            self.leg6_j1.data = config.leg6_j1
+            self.leg6_j2.data = config.leg6_j2
+            self.leg6_j3.data = config.leg6_j3
+            
+        elif self.robot_type == 'rollerwalker':
+            self.leg1_j1.data = config.leg1_j1
+            self.leg1_j2.data = config.leg1_j2
+            self.leg1_j3.data = config.leg1_j3
+
+            self.leg2_j1.data = config.leg2_j1
+            self.leg2_j2.data = config.leg2_j2
+            self.leg2_j3.data = config.leg2_j3
+
+            self.leg3_j1.data = config.leg3_j1
+            self.leg3_j2.data = config.leg3_j2
+            self.leg3_j3.data = config.leg3_j3
+
+            self.leg4_j1.data = config.leg4_j1
+            self.leg4_j2.data = config.leg4_j2
+            self.leg4_j3.data = config.leg4_j3
+
+
+        self.publish_joint_values()
+
+        return config
+    
+    #getters 
+    def getSensorValue(self, sensor_type='front'):
+        assert sensor_type in self.SENSOR_TYPES
+        if sensor_type=='front':
+            return self.front_sensor_val.data
+        elif sensor_type == 'left':
+            return self.left_sensor_val.data
+        elif sensor_type == 'right':
+            return self.right_sensor_val.data
+    
+    def getMotorCurrentJointPosition(self, motor_id_string='leg1_j1'):
+        assert motor_id_string in self.joint_states.name
+        motor_id = self.joint_states.name.index(motor_id_string)
+        return self.joint_states.position[motor_id]
+    
+    def getRobotWorldLocation(self):
+        return self.robot_pose.position, self.robot_pose.orientation
+    
+    def getCurrentSimTime(self):
+        return self.sim_time
+    
+    #setters
+    
+    def setMotorTargetJointPosition(self, motor_id_string='leg1_j1', target_joint_angle=0.0):
+        if motor_id_string == 'leg1_j1':
+            self.leg1_j1.data = target_joint_angle
+        elif motor_id_string == 'leg1_j2':
+            self.leg1_j2.data = target_joint_angle
+        elif motor_id_string == 'leg1_j3':
+            self.leg1_j3.data = target_joint_angle
+        elif motor_id_string == 'leg2_j1':
+            self.leg2_j1.data = target_joint_angle
+        elif motor_id_string == 'leg2_j2':
+            self.leg2_j2.data = target_joint_angle
+        elif motor_id_string == 'leg2_j3':
+            self.leg2_j3.data = target_joint_angle
+        elif motor_id_string == 'leg3_j1':
+            self.leg3_j1.data = target_joint_angle
+        elif motor_id_string == 'leg3_j2':
+            self.leg3_j2.data = target_joint_angle
+        elif motor_id_string == 'leg3_j3':
+            self.leg3_j3.data = target_joint_angle
+        elif motor_id_string == 'leg4_j1':
+            self.leg4_j1.data = target_joint_angle
+        elif motor_id_string == 'leg4_j2':
+            self.leg4_j2.data = target_joint_angle
+        elif motor_id_string == 'leg4_j3':
+            self.leg4_j3.data = target_joint_angle
+        elif motor_id_string == 'leg5_j1':
+            self.leg5_j1.data = target_joint_angle
+        elif motor_id_string == 'leg5_j2':
+            self.leg5_j2.data = target_joint_angle
+        elif motor_id_string == 'leg5_j3':
+            self.leg5_j3.data = target_joint_angle
+        elif motor_id_string == 'leg6_j1':
+            self.leg6_j1.data = target_joint_angle
+        elif motor_id_string == 'leg6_j2':
+            self.leg6_j2.data = target_joint_angle
+        elif motor_id_string == 'leg6_j3':
+            self.leg6_j3.data = target_joint_angle
+        
+        self.publish_joint_values()
+
 sys.path.append(os.path.join(
     rospkg.RosPack().get_path('me_cs301_robots'), 'scripts'))
+
+
 
 '''
 MotorIDstrings for Hexapod follow the convention legN_jM, where N can be 1,2,3,4,5,6 (for each of the 6 legs) and M can 1,2,3. M=1 is the joint closest to the body and M=3 is the joint farthest from the body.
@@ -37,68 +366,8 @@ class HexapodControl(RobotControl):
         self.hold_neutral()
         time.sleep(2.0)
 
-        data_dict = {(0.18886572122573853, -1000.0, 0.29489263892173767): 'L',
-        (0.19246011972427368, 0.27303528785705566, 0.4725402295589447): 'T',
-        (-1000.0, -1000.0, 0.1216597780585289): 'F',
-        (-1000.0, -1000.0, 0.5008593797683716): 'F',
-        (0.4662621319293976, -1000.0, 0.2998603284358978): 'F',
-        (0.11432650685310364, -1000.0, 0.49349287152290344): 'L',
-        (-1000.0, 0.16683532297611237, -1000.0): 'F',
-        (-1000.0, 0.4849688410758972, 0.1722767949104309): 'F',
-        (0.36776286363601685, 0.48489582538604736, -1000.0): 'L',
-        (0.11320717632770538, -1000.0, -1000.0): 'L',
-        (0.4656304121017456, -1000.0, -1000.0): 'F',
-        (0.36713093519210815, 0.4793507158756256, -1000.0): 'R',
-        (0.19279010593891144, 0.20319049060344696, -1000.0): 'R',
-        (0.1432543843984604, 0.20479263365268707, -1000.0): 'R',
-        (0.23664286732673645, 0.40605753660202026, -1000.0): 'R',
-        (-1000.0, -1000.0, 0.4744504690170288): 'F',
-        (-1000.0, 0.4902779757976532, -1000.0): 'F',
-        (0.16335883736610413, -1000.0, 0.4415828585624695): 'L',
-        (-1000.0, 0.17930111289024353, 0.4783061742782593): 'F',
-        (0.13843156397342682, 0.2047196328639984, -1000.0): 'R',
-        (-1000.0, -1000.0, 0.22309862077236176): 'F',
-        (-1000.0, 0.2079465538263321, 0.44593536853790283): 'F',
-        (-1000.0, 0.3476245701313019, -1000.0): 'F',
-        (0.19611884653568268, -1000.0, 0.17517587542533875): 'R',
-        (0.47354668378829956, 0.4263686537742615, -1000.0): 'F',
-        (-1000.0, 0.49951663613319397, 0.352539598941803): 'F',
-        (0.22046276926994324, 0.49880141019821167, 0.2516286075115204): 'T',
-        (-1000.0, -1000.0, 0.17484889924526215): 'F',
-        (0.24679458141326904, 0.37764638662338257, 0.373322069644928): 'T',
-        (0.1179201677441597, 0.16323581337928772, -1000.0): 'R',
-        (0.11907172203063965, -1000.0, 0.4719002842903137): 'L',
-        (-1000.0, 0.43713298439979553, 0.2100927233695984): 'F',
-        (0.4946841597557068, -1000.0, -1000.0): 'F',
-        (0.1934836506843567, 0.4065283238887787, -1000.0): 'R',
-        (0.14272016286849976, 0.1979454755783081, -1000.0): 'R',
-        (-1000.0, -1000.0, -1000.0): 'F',
-        (0.4886481761932373, -1000.0, 0.4722394645214081): 'F',
-        (0.16812939941883087, 0.45914918184280396, -1000.0): 'R',
-        (0.11304689943790436, -1000.0, 0.2653895616531372): 'L',
-        (0.24596309661865234, 0.2498926967382431, 0.5007567405700684): 'T',
-        (0.49938568472862244, 0.25020188093185425, 0.5038331151008606): 'F',
-        (0.16292355954647064, -1000.0, -1000.0): 'R',
-        (0.2389470338821411, -1000.0, 0.447404146194458): 'L',
-        (-1000.0, 0.30519160628318787, 0.3537727892398834): 'F',
-        (0.4454415738582611, -1000.0, 0.1482175886631012): 'F',
-        (0.4690057337284088, 0.48210495710372925, -1000.0): 'F',
-        (0.16980811953544617, 0.3732264041900635, 0.37402617931365967): 'T',
-        (0.11840330064296722, 0.22482730448246002, -1000.0): 'R',
-        (0.19094285368919373, -1000.0, 0.37234944105148315): 'L',
-        (0.13888894021511078, 0.4835090935230255, -1000.0): 'R',
-        (0.2938598096370697, 0.17154090106487274, -1000.0): 'R',
-        (0.45002952218055725, 0.49831652641296387, 0.24978582561016083): 'F',
-        (-1000.0, -1000.0, 0.3537442684173584): 'F',
-        (0.23689614236354828, -1000.0, -1000.0): 'R',
-        (0.16832999885082245, -1000.0, 0.22385288774967194): 'L',
-        (-1000.0, 0.17603366076946259, 0.4859517812728882): 'F',
-        (0.46752336621284485, 0.18278983235359192, -1000.0): 'F',
-        (0.26373186707496643, -1000.0, 0.46979808807373047): 'L',
-        (0.269019216299057, 0.48895263671875, -1000.0): 'R',
-        (0.11160784959793091, 0.4868141710758209, -1000.0): 'R'}
-
         center_dict = {}
+        data_dict = {}
         
         while not rospy.is_shutdown():
             dir = input("which direction?")
@@ -107,7 +376,7 @@ class HexapodControl(RobotControl):
             front_dist = self.getSensorValue('front')
 
             center_dict[(front_dist, left_dist, right_dist)] = dir
-            print(data_dict)
+            print(center_dict)
 
             # self.hold_neutral() #remove if not necessary
             # ---- add your code for a particular behavior here ---
@@ -198,10 +467,10 @@ class HexapodControl(RobotControl):
         self.hold_neutral()
         time.sleep(0.5)
 
-    def reactive_control(self):
-        left_dist = self.getSensorValue('left') + 0.08
-        right_dist = self.getSensorValue('right') + 0.08
-        front_dist = self.getSensorValue('front') + 0.212
+    def reactive_control(self, sensor_data):
+        left_dist = sensor_data[1] + 0.08
+        right_dist = sensor_data[2] + 0.08
+        front_dist = sensor_data[0] + 0.212
         if right_dist < 0:
             right_dist = 999
         if left_dist < 0:
@@ -210,11 +479,12 @@ class HexapodControl(RobotControl):
             front_dist = 999
 
         if left_dist <= 0.4 and front_dist <= 0.4 and right_dist <= 0.4:
-            self.turnaround()
+            return 'T'
         elif left_dist <= 0.4 and front_dist <= 0.4:
-            self.turnright()
+            return 'R'
         elif right_dist <= 0.4 and front_dist <= 0.4:
-            self.turnleft()
+            return 'L'
+        return 'F'
 
     def turn_slightly_right(self):
         self.setMotorTargetJointPosition('leg1_j2', self.degToRad(-90))
