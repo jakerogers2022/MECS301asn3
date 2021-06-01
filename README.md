@@ -3,9 +3,9 @@ machine learning controlled robot
 
 FILES
 
-as3.py
+as3.py:
 Used to collect testing data
-MLrobotics
+MLrobotics:
 Contains KNN class and single instantiation
-ReactiveControlTesting
+ReactiveControlTesting:
 Used to test the existing reactive control with the datasets
