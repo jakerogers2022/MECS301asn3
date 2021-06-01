@@ -52,6 +52,6 @@ This class also contains an evaluation function that returns the raw accuracy of
 predictions against the testing labels.
 
 The **ReactiveControlTesting.py** file was used to test the pre-exisitng reactive controllers against the KNN model.
-The **asn3.py** file contains the behaviors the control the robot.
+The **asn3.py** file contains the behaviors that control the robot.
 
 
